@@ -3,6 +3,7 @@
 ## A CIT-U initiative to transform waste management in Cebu City through innovative technology, community engagement, and sustainable practices.
 
 ## Project Proposal Document: 
+
 https://docs.google.com/document/d/1rSirJm7NU9on9612VHcZ5ZXJcvv5g1STUfd90pdC8kA/edit?usp=sharing
 
 ## Running the code
