@@ -1,6 +1,10 @@
+// src/app/pages/RegisterPage.tsx
 import { useState } from "react";
-import { Link, useNavigate } from "react-router";
-import { Trash2, Leaf, User, Shield, Truck, MapPin, Home } from "lucide-react";
+import { Link } from "react-router";
+import { Trash2, Leaf, User, Shield, Truck, MapPin, Home, AlertCircle, Mail } from "lucide-react";
+import { useAuth } from "../contexts/AuthContext";
+import { CEBU_CITY_BARANGAYS } from '../../lib/constants';
+import ThemeToggle from "../components/ui/ThemeToggle";
 
 type Role = "resident" | "admin" | "collector";
 
@@ -31,22 +35,10 @@ const roles = [
   },
 ];
 
-const barangays = [
-  "Lahug",
-  "Apas",
-  "Capitol Site",
-  "Kamputhaw",
-  "Mabolo",
-  "Guadalupe",
-  "Talamban",
-  "Banilad",
-  "Busay",
-  "Tisa",
-];
-
 export default function RegisterPage() {
-  const navigate = useNavigate();
+  const { register } = useAuth();
   const [selectedRole, setSelectedRole] = useState<Role>("resident");
+  const [registrationComplete, setRegistrationComplete] = useState(false);
   const [formData, setFormData] = useState({
     fullName: "",
     email: "",
@@ -58,6 +50,7 @@ export default function RegisterPage() {
   });
   const [isLoading, setIsLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [firebaseError, setFirebaseError] = useState("");
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -84,21 +77,67 @@ export default function RegisterPage() {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleRegister = (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+    setFirebaseError("");
 
     if (!validateForm()) return;
 
     setIsLoading(true);
-    // Simulate registration
-    setTimeout(() => {
-      localStorage.setItem("trashhoop_role", selectedRole);
-      localStorage.setItem("trashhoop_user", formData.email);
-      localStorage.setItem("trashhoop_barangay", formData.barangay);
+    try {
+      await register({
+        email: formData.email,
+        password: formData.password,
+        fullName: formData.fullName,
+        phone: formData.phone,
+        address: formData.address,
+        barangay: formData.barangay,
+        role: selectedRole === "admin" ? "resident" : selectedRole,
+      });
+
+      setRegistrationComplete(true);
+    } catch (error: any) {
+      console.error("Registration error:", error);
+      if (error.code === 'auth/email-already-in-use') {
+        setFirebaseError("This email is already registered. Please login instead.");
+      } else {
+        setFirebaseError(error.message || "Failed to create account. Please try again.");
+      }
+    } finally {
       setIsLoading(false);
-      navigate("/app/dashboard");
-    }, 1500);
+    }
   };
+
+  if (registrationComplete) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ background: "linear-gradient(135deg, #1B5E20 0%, #2E7D32 40%, #388E3C 100%)" }}>
+      <div className="fixed top-4 right-4 z-50">
+                <ThemeToggle />
+              </div>
+        <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl p-8 m-4">
+          <div className="text-center">
+            <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
+              <Mail className="w-10 h-10 text-green-600" />
+            </div>
+            <h2 className="text-2xl font-bold text-[#1A2E1A] mb-2">Verify Your Email</h2>
+            <p className="text-[#558B5A] mb-6">
+              We've sent a verification link to <strong>{formData.email}</strong>.
+              Please check your inbox and click the link to activate your account.
+            </p>
+            <p className="text-sm text-[#A5D6A7] mb-6">
+              Didn't receive the email? Check your spam folder or request a new verification email after logging in.
+            </p>
+            <Link
+              to="/login"
+              className="inline-block w-full py-3 bg-[#2E7D32] text-white rounded-xl hover:bg-[#1B5E20] transition text-center font-semibold"
+            >
+              Go to Login
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex" style={{ background: "linear-gradient(135deg, #1B5E20 0%, #2E7D32 40%, #388E3C 100%)" }}>
@@ -152,11 +191,19 @@ export default function RegisterPage() {
           <h2 className="text-2xl font-bold text-[#1A2E1A] mb-1">Create Account</h2>
           <p className="text-[#558B5A] text-sm mb-6">Join the waste management revolution</p>
 
+          {/* Firebase Error */}
+          {firebaseError && (
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2">
+              <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+              <p className="text-sm text-red-700">{firebaseError}</p>
+            </div>
+          )}
+
           {/* Role Selection */}
           <div className="mb-6">
             <label className="text-sm text-[#558B5A] mb-3 block">Select your role</label>
-            <div className="grid grid-cols-3 gap-2">
-              {roles.map((role) => {
+            <div className="grid grid-cols-2 gap-2">
+              {roles.filter(r => r.id !== "admin").map((role) => {
                 const Icon = role.icon;
                 const isActive = selectedRole === role.id;
                 return (
@@ -174,6 +221,9 @@ export default function RegisterPage() {
                 );
               })}
             </div>
+            <p className="text-xs text-[#A5D6A7] mt-2">
+              Note: Admin accounts can only be created by existing admins.
+            </p>
           </div>
 
           {/* Form */}
@@ -236,10 +286,8 @@ export default function RegisterPage() {
                   } bg-[#F4FAF4] focus:outline-none focus:ring-2 focus:ring-[#66BB6A] text-[#1A2E1A] transition appearance-none cursor-pointer`}
                 >
                   <option value="">Select your barangay</option>
-                  {barangays.map((barangay) => (
-                    <option key={barangay} value={barangay}>
-                      {barangay}
-                    </option>
+                  {CEBU_CITY_BARANGAYS.map((barangay) => (  // ✅ USE DIRECTLY
+                    <option key={barangay} value={barangay}>{barangay}</option>
                   ))}
                 </select>
               </div>
@@ -298,19 +346,11 @@ export default function RegisterPage() {
               <input type="checkbox" className="accent-[#2E7D32] mt-1" required />
               <label className="text-[#558B5A]">
                 I agree to the{" "}
-                <button
-                  type="button"
-                  onClick={() => alert("Terms of Service\n\nBy using TrashHoop, you agree to follow proper waste management practices and community guidelines.")}
-                  className="text-[#2E7D32] hover:underline"
-                >
+                <button type="button" onClick={() => alert("Terms of Service")} className="text-[#2E7D32] hover:underline">
                   Terms of Service
                 </button>{" "}
                 and{" "}
-                <button
-                  type="button"
-                  onClick={() => alert("Privacy Policy\n\nWe protect your data and only use it to improve waste management services in your barangay.")}
-                  className="text-[#2E7D32] hover:underline"
-                >
+                <button type="button" onClick={() => alert("Privacy Policy")} className="text-[#2E7D32] hover:underline">
                   Privacy Policy
                 </button>
               </label>

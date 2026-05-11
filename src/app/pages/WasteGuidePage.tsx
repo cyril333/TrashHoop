@@ -1,7 +1,30 @@
-import { useState } from "react";
-import { Search, Leaf, RotateCcw, Trash, Info } from "lucide-react";
+// src/app/pages/WasteGuidePage.tsx
+import { useState, useEffect } from "react";
+import { Search, Info, Loader2, AlertTriangle, X } from "lucide-react";
+import { collection, query, getDocs, addDoc } from "firebase/firestore";
+import { db } from "../../lib/firebase";
 
-const categories = [
+interface WasteCategory {
+  id: string;
+  label: string;
+  icon: string;
+  color: string;
+  bg: string;
+  border: string;
+  description: string;
+  collectionDay: string;
+  binColor: string;
+  examples: { name: string; icon: string }[];
+  tips: string[];
+}
+
+interface SearchItem {
+  term: string;
+  categoryId: string;
+}
+
+// Default categories to seed if collection is empty
+const defaultCategories: WasteCategory[] = [
   {
     id: "biodegradable",
     label: "Biodegradable",
@@ -108,43 +131,189 @@ const categories = [
   },
 ];
 
-const quickSearch: Record<string, string> = {
-  banana: "biodegradable",
-  apple: "biodegradable",
-  rice: "biodegradable",
-  leaves: "biodegradable",
-  plastic: "recyclable",
-  bottle: "recyclable",
-  glass: "recyclable",
-  paper: "recyclable",
-  cardboard: "recyclable",
-  can: "recyclable",
-  styrofoam: "residual",
-  diaper: "residual",
-  tissue: "residual",
-  battery: "hazardous",
-  medicine: "hazardous",
-  bulb: "hazardous",
-  electronic: "hazardous",
-};
+const defaultSearchItems: SearchItem[] = [
+  { term: "banana", categoryId: "biodegradable" },
+  { term: "apple", categoryId: "biodegradable" },
+  { term: "rice", categoryId: "biodegradable" },
+  { term: "leaves", categoryId: "biodegradable" },
+  { term: "plastic", categoryId: "recyclable" },
+  { term: "bottle", categoryId: "recyclable" },
+  { term: "glass", categoryId: "recyclable" },
+  { term: "paper", categoryId: "recyclable" },
+  { term: "cardboard", categoryId: "recyclable" },
+  { term: "can", categoryId: "recyclable" },
+  { term: "styrofoam", categoryId: "residual" },
+  { term: "diaper", categoryId: "residual" },
+  { term: "tissue", categoryId: "residual" },
+  { term: "battery", categoryId: "hazardous" },
+  { term: "medicine", categoryId: "hazardous" },
+  { term: "bulb", categoryId: "hazardous" },
+  { term: "electronic", categoryId: "hazardous" },
+];
 
 export default function WasteGuidePage() {
   const [activeCategory, setActiveCategory] = useState("biodegradable");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResult, setSearchResult] = useState<string | null>(null);
+  const [categories, setCategories] = useState<WasteCategory[]>([]);
+  const [searchItems, setSearchItems] = useState<SearchItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSeeding, setIsSeeding] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchCategories();
+    fetchSearchItems();
+  }, []);
+
+  const seedData = async () => {
+    setIsSeeding(true);
+    try {
+      // Seed categories
+      const categoriesRef = collection(db, "wasteCategories");
+      for (const category of defaultCategories) {
+        await addDoc(categoriesRef, category);
+      }
+
+      // Seed search items
+      const searchRef = collection(db, "wasteSearchItems");
+      for (const item of defaultSearchItems) {
+        await addDoc(searchRef, item);
+      }
+
+      await fetchCategories();
+      await fetchSearchItems();
+    } catch (err) {
+      console.error("Error seeding data:", err);
+      setError("Failed to create data. Please try again.");
+    } finally {
+      setIsSeeding(false);
+    }
+  };
+
+  const fetchCategories = async () => {
+    try {
+      const categoriesRef = collection(db, "wasteCategories");
+      const querySnapshot = await getDocs(query(categoriesRef));
+
+      if (querySnapshot.empty) {
+        setCategories([]);
+      } else {
+        const fetchedCategories: WasteCategory[] = [];
+        querySnapshot.forEach((doc) => {
+          fetchedCategories.push({ id: doc.id, ...doc.data() } as WasteCategory);
+        });
+        setCategories(fetchedCategories);
+      }
+    } catch (err: any) {
+      console.error("Error fetching categories:", err);
+      if (err.code === "not-found" || err.message?.includes("Missing or insufficient permissions")) {
+        setError("Waste categories not found. Would you like to create default data?");
+      } else {
+        setError("Failed to load waste categories. Please try again.");
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const fetchSearchItems = async () => {
+    try {
+      const searchRef = collection(db, "wasteSearchItems");
+      const querySnapshot = await getDocs(query(searchRef));
+
+      if (!querySnapshot.empty) {
+        const items: SearchItem[] = [];
+        querySnapshot.forEach((doc) => {
+          items.push({ term: doc.data().term, categoryId: doc.data().categoryId });
+        });
+        setSearchItems(items);
+      }
+    } catch (err) {
+      console.error("Error fetching search items:", err);
+    }
+  };
 
   const handleSearch = (query: string) => {
     setSearchQuery(query);
-    if (!query) { setSearchResult(null); return; }
+    if (!query) {
+      setSearchResult(null);
+      return;
+    }
+    
     const key = query.toLowerCase().trim();
-    const found = Object.keys(quickSearch).find((k) => k.includes(key) || key.includes(k));
-    setSearchResult(found ? quickSearch[found] : "not_found");
+    const found = searchItems.find((item) => 
+      item.term.includes(key) || key.includes(item.term)
+    );
+    
+    setSearchResult(found ? found.categoryId : "not_found");
   };
 
-  const active = categories.find((c) => c.id === activeCategory)!;
+  const active = categories.find((c) => c.id === activeCategory);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-8 h-8 text-[#2E7D32] animate-spin" />
+      </div>
+    );
+  }
+
+  // Show empty state with seed button
+  if (categories.length === 0 && !error) {
+    return (
+      <div className="max-w-5xl">
+        <div className="bg-white rounded-2xl p-10 text-center shadow-sm border border-[#E8F5E9]">
+          <span className="text-5xl mb-4 block">🗑️</span>
+          <h3 className="text-lg font-semibold text-[#1A2E1A] mb-2">No Waste Categories Found</h3>
+          <p className="text-[#558B5A] mb-6">Would you like to create the default waste guide data?</p>
+          <button
+            onClick={seedData}
+            disabled={isSeeding}
+            className="px-6 py-3 bg-[#2E7D32] text-white rounded-xl hover:bg-[#1B5E20] transition cursor-pointer disabled:opacity-60 flex items-center gap-2 mx-auto"
+          >
+            {isSeeding ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Creating Data...
+              </>
+            ) : (
+              "Create Default Data"
+            )}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!active) {
+    return null;
+  }
 
   return (
     <div className="space-y-6 max-w-5xl">
+      {/* Error banner */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
+          <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-sm text-red-700">{error}</p>
+            {error.includes("Would you like to create") && (
+              <button
+                onClick={seedData}
+                disabled={isSeeding}
+                className="mt-2 px-4 py-2 bg-[#2E7D32] text-white rounded-lg text-sm hover:bg-[#1B5E20] transition cursor-pointer disabled:opacity-60"
+              >
+                {isSeeding ? "Creating..." : "Create Default Data"}
+              </button>
+            )}
+          </div>
+          <button onClick={() => { setError(null); fetchCategories(); }} className="ml-auto">
+            <X className="w-4 h-4 text-red-500" />
+          </button>
+        </div>
+      )}
+
       {/* Search */}
       <div className="bg-white rounded-2xl p-5 shadow-sm border border-[#E8F5E9]">
         <h3 className="font-semibold text-[#1A2E1A] mb-3 flex items-center gap-2">
@@ -172,7 +341,11 @@ export default function WasteGuidePage() {
               <div
                 className="flex items-center gap-3 p-3 rounded-xl cursor-pointer"
                 style={{ background: categories.find((c) => c.id === searchResult)?.bg }}
-                onClick={() => { setActiveCategory(searchResult); setSearchQuery(""); setSearchResult(null); }}
+                onClick={() => { 
+                  setActiveCategory(searchResult); 
+                  setSearchQuery(""); 
+                  setSearchResult(null); 
+                }}
               >
                 <span className="text-xl">{categories.find((c) => c.id === searchResult)?.icon}</span>
                 <div>
@@ -238,8 +411,8 @@ export default function WasteGuidePage() {
           <div className="lg:col-span-2">
             <h4 className="text-sm font-semibold text-[#1A2E1A] mb-3">Examples of {active.label} Waste</h4>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {active.examples.map((ex) => (
-                <div key={ex.name} className="flex flex-col items-center gap-1.5 p-3 rounded-xl" style={{ background: active.bg }}>
+              {active.examples.map((ex, i) => (
+                <div key={i} className="flex flex-col items-center gap-1.5 p-3 rounded-xl" style={{ background: active.bg }}>
                   <span className="text-2xl">{ex.icon}</span>
                   <span className="text-xs text-center text-[#558B5A] font-medium">{ex.name}</span>
                 </div>

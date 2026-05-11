@@ -1,5 +1,8 @@
-import { useState } from "react";
+// src/app/pages/ReportPage.tsx
+import { createReport, uploadReportPhoto, getUserReports, getAllReports, updateReportStatus } from "../../services/report.service";
+import { useState, useEffect } from "react";
 import { useOutletContext } from "react-router";
+import { useAuth } from "../contexts/AuthContext";
 import { useScore, SCORE_ACTIONS } from "../contexts/ScoreContext";
 import {
   AlertTriangle,
@@ -15,9 +18,10 @@ import {
 
 type Role = "resident" | "admin" | "collector";
 
+// Temporary mock data until Firebase service is connected
 const initialReports = [
   {
-    id: 1,
+    id: "1",
     address: "Brgy. Lahug, Gorordo Avenue",
     type: "Mixed Waste",
     description: "Resident mixing biodegradable and non-biodegradable waste in the same bin.",
@@ -29,7 +33,7 @@ const initialReports = [
     hasPhoto: true,
   },
   {
-    id: 2,
+    id: "2",
     address: "Brgy. Apas, Near IT Park",
     type: "Illegal Dumping",
     description: "Household garbage dumped on the sidewalk outside collection schedule.",
@@ -41,7 +45,7 @@ const initialReports = [
     hasPhoto: true,
   },
   {
-    id: 3,
+    id: "3",
     address: "Brgy. Capitol Site, Fuente Circle",
     type: "Littering",
     description: "Individual spotted littering plastic wrappers near the playground.",
@@ -51,18 +55,6 @@ const initialReports = [
     reporter: "Pedro Reyes",
     severity: "low",
     hasPhoto: false,
-  },
-  {
-    id: 4,
-    address: "Brgy. Kamputhaw, Mango Ave.",
-    type: "Burning Waste",
-    description: "Resident burning household waste in open area violating local ordinance.",
-    status: "Pending",
-    date: "Mar 6, 2026",
-    time: "7:00 AM",
-    reporter: "Ana Garcia",
-    severity: "high",
-    hasPhoto: true,
   },
 ];
 
@@ -91,16 +83,31 @@ function StatusBadge({ status }: { status: string }) {
 
 function SeverityDot({ severity }: { severity: string }) {
   const colors: Record<string, string> = { high: "bg-[#D32F2F]", medium: "bg-[#FFA726]", low: "bg-[#66BB6A]" };
-  return <span className={`inline-block w-2.5 h-2.5 rounded-full ${colors[severity]}`} />;
+  return <span className={`inline-block w-2.5 h-2.5 rounded-full ${colors[severity] || "bg-gray-400"}`} />;
+}
+
+interface ReportItem {
+  id: string;
+  address: string;
+  type: string;
+  description: string;
+  status: string;
+  date: string;
+  time: string;
+  reporter: string;
+  severity: string;
+  hasPhoto: boolean;
 }
 
 export default function ReportPage() {
   const { role } = useOutletContext<{ role: Role }>();
+  const { user } = useAuth();
   const { addScore } = useScore();
-  const [reports, setReports] = useState(initialReports);
+  const [reports, setReports] = useState<ReportItem[]>(initialReports);
   const [showForm, setShowForm] = useState(false);
   const [filterStatus, setFilterStatus] = useState("All");
-  const [selectedReport, setSelectedReport] = useState<typeof initialReports[0] | null>(null);
+  const [selectedReport, setSelectedReport] = useState<ReportItem | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [form, setForm] = useState({
     address: "",
@@ -110,36 +117,52 @@ export default function ReportPage() {
   });
   const [submitted, setSubmitted] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const newReport = {
-      id: reports.length + 1,
-      address: form.address,
-      type: form.type || "Other",
-      description: form.description,
-      status: "Pending",
-      date: "Mar 9, 2026",
-      time: new Date().toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" }),
-      reporter: "You",
-      severity: "medium",
-      hasPhoto: !!form.photo,
-    };
-    setReports([newReport, ...reports]);
-    
-    // Award points for submitting a report (if resident)
-    if (role === "resident") {
-      addScore(SCORE_ACTIONS.REPORT_SUBMITTED.points, SCORE_ACTIONS.REPORT_SUBMITTED.reason);
+    if (!user) {
+      alert("You must be logged in");
+      return;
     }
-    
-    setSubmitted(true);
-    setTimeout(() => {
-      setSubmitted(false);
-      setShowForm(false);
-      setForm({ address: "", type: "", description: "", photo: null });
-    }, 2000);
+
+    setIsSubmitting(true);
+
+    try {
+      let photoURL;
+      if (form.photo) {
+        photoURL = await uploadReportPhoto(form.photo, user.uid);
+      }
+
+      await createReport({
+        userId: user.uid,
+        reporterName: user.fullName || user.email || "Anonymous",
+        address: form.address,
+        type: form.type || "Other",
+        description: form.description,
+        photoURL,
+        status: "pending",
+        severity: "medium",
+      });
+
+      if (role === "resident") {
+        addScore(SCORE_ACTIONS.REPORT_SUBMITTED.points, SCORE_ACTIONS.REPORT_SUBMITTED.reason);
+      }
+
+      setSubmitted(true);
+      setTimeout(() => {
+        setSubmitted(false);
+        setShowForm(false);
+        setForm({ address: "", type: "", description: "", photo: null });
+        fetchReports();
+      }, 2000);
+    } catch (error) {
+      console.error("Error submitting report:", error);
+      alert("Failed to submit report.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const updateStatus = (id: number, status: string) => {
+  const updateStatus = (id: string, status: string) => {
     setReports(reports.map((r) => (r.id === id ? { ...r, status } : r)));
     setSelectedReport(null);
   };
@@ -268,9 +291,17 @@ export default function ReportPage() {
                   </button>
                   <button
                     type="submit"
-                    className="flex-1 py-3 rounded-xl bg-[#2E7D32] text-white hover:bg-[#1B5E20] transition cursor-pointer"
+                    disabled={isSubmitting}
+                    className="flex-1 py-3 rounded-xl bg-[#2E7D32] text-white hover:bg-[#1B5E20] transition cursor-pointer disabled:opacity-60 flex items-center justify-center gap-2"
                   >
-                    Submit Report
+                    {isSubmitting ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        Submitting...
+                      </>
+                    ) : (
+                      "Submit Report"
+                    )}
                   </button>
                 </div>
               </form>

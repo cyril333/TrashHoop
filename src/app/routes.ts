@@ -1,5 +1,6 @@
+// src/app/routes.ts
 import { createBrowserRouter, redirect } from "react-router";
-import Layout from "./components/Layout";
+import Layout from "./pages/Layout";
 import LandingPage from "./pages/LandingPage";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
@@ -13,11 +14,23 @@ import ViolationsPage from "./pages/ViolationsPage";
 import SchedulePage from "./pages/SchedulePage";
 import EducationPage from "./pages/EducationPage";
 import UsersPage from "./pages/UsersPage";
+import AnnouncementsPage from "./pages/admin/AnnouncementsPage";
+import BinManagementPage from './pages/admin/BinManagementPage';
 
+// Protected route loader
 function requireAuth() {
-  const role = localStorage.getItem("trashhoop_role");
-  if (!role) {
+  const user = localStorage.getItem("trashhoop_user");
+  if (!user) {
     return redirect("/login");
+  }
+  return null;
+}
+
+// Redirect if already logged in
+function redirectIfAuth() {
+  const user = localStorage.getItem("trashhoop_user");
+  if (user) {
+    return redirect("/app/dashboard");
   }
   return null;
 }
@@ -30,10 +43,12 @@ export const router = createBrowserRouter([
   {
     path: "/login",
     Component: LoginPage,
+    loader: redirectIfAuth,
   },
   {
     path: "/register",
     Component: RegisterPage,
+    loader: redirectIfAuth,
   },
   {
     path: "/about",
@@ -83,6 +98,14 @@ export const router = createBrowserRouter([
       {
         path: "users",
         Component: UsersPage,
+      },
+      {
+        path: "announcements",
+        Component: AnnouncementsPage,
+      },
+      {
+        path: "bins",
+        Component: BinManagementPage,
       },
     ],
   },
